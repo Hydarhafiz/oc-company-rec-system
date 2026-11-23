@@ -1,6 +1,6 @@
 # M1 — Reliable ingestion and recommendation submission
 
-Status: **plan approved by the user; implementation not started**. No implementation or runtime acceptance is complete. Scope and time allocations: [roadmap](roadmap.md). Assessment authority, feed observations, and external references: [planning sources](planning-sources.md).
+Status: **M1 in progress; F1 complete; F2 ready**. F1's feature-level implementation and verification are complete; full producer-to-API acceptance remains in F3. Scope and time allocations: [roadmap](roadmap.md). Assessment authority, feed observations, and external references: [planning sources](planning-sources.md).
 
 ## Shared contracts
 
@@ -54,17 +54,17 @@ Use a consistent error envelope `{ "error": { "code": "...", "message": "..." } 
 
 ## Feature contracts and progress
 
-All acceptance criteria below are **planned/unverified**. Fixture profiling establishes input properties only; it does not demonstrate consumer, database, API, recovery, speed, or recommendation quality.
+F1's acceptance evidence is recorded below. F2 and F3 acceptance remain **planned/unverified**. Fixture parsing and feature tests do not establish full broker replay, API behavior, replay performance, or recommendation quality.
 
 ### F1 — Database and reliable ingestion
 
-- **Type/status/route:** `build`; planned, ready for implementation on a separate user instruction; `builder-executor -> tdd-loop`.
+- **Type/status/route:** `build`; complete; `builder-executor -> tdd-loop`.
 - **Outcome/scope:** repeatable two-table schema; typed Pydantic validation/normalization; CPU embedding generation; async database adapter and atomic conditional upsert; reliable RabbitMQ consumer; ingestion regressions. Admit necessary dependencies and lockfile/run-command support. Exclude API, evaluation, upstream edits, ANN, and extra services.
-- **Entry gate:** user approves M1 and invokes implementation; retain Python 3.14 and verify dependency resolution, model download/cache, and one real 384-dimensional CPU embedding first. If this fails, report the concrete incompatibility before changing runtime/model. Confirm SQL and queue contracts above.
+- **Entry gate:** satisfied. Python 3.14 dependency resolution, model download/cache, a real 384-dimensional CPU embedding, SQL contracts, and queue contracts were verified before implementation proceeded.
 - **F1-01:** actual PostgreSQL/pgvector tests prove one row per normalized ID, atomic metadata/vector/version updates, duplicate/stale no-ops, equivalent timestamp instants, and deterministic equal-time winners in both arrival orders. Include competing transactions so an application-side read cannot mask a missing SQL guard.
 - **F1-02:** validation covers the real nested feed, all four timestamp forms, padded/lowercase IDs, null/missing/blank descriptions and metadata, numeric IDs, malformed JSON/non-object bodies, unsupported events, and ignored extra fields. All fallback levels preserve company eligibility; real-model smoke proves finite nonzero 384-dimensional output. Lightweight deterministic vectors may isolate unit/SQL tests, but cannot replace this smoke or final replay.
 - **F1-03:** transaction/broker failure scenarios prove rollback, no ACK before commit, durable quarantine before ACK, no ACK if quarantine fails, and safe redelivery after commit-before-ACK. Demonstrate a failed transaction can be followed by successful processing without corrupting the connection/row.
-- **Exit/evidence:** retain capability-named validation, persistence, embedding, and delivery tests; run focused Pytest coverage against actual supplied services where required. No passing status until these run. One completed F1 commit contains code, tests, dependency/run support, relevant planning updates, and verified evidence; no intermediate workflow commit.
+- **Exit/evidence:** satisfied by `uv run pytest -q` (49 passed), including actual PostgreSQL/pgvector tests, a full read-only parse of all 2,518 feed lines, and a real-model CPU smoke test. PostgreSQL 16.15 with pgvector 0.6.0 was used because Docker was unavailable in WSL; the supplied Compose pgvector 0.8.7 image remains untested. RabbitMQ delivery/recovery scenarios use a fake AMQP channel; broker-level recovery belongs to F3. Python 3.14.5 resolved FastEmbed 0.9.1, asyncpg 0.32.0, pgvector 0.5.1, Pydantic 2.14.4, pytest 9.2.0, and pytest-asyncio 1.5.0. The real model artifact resolved to `Qdrant/bge-small-en-v1.5-onnx-Q@aa8f8b060edb00e03bfdd08813a2949946c8ba55`; output was finite, nonzero, and 384-dimensional. The full 2,518-message broker replay and runtime recovery remain F3 acceptance, not F1 claims.
 
 ### F2 — Recommendation API
 
@@ -97,8 +97,8 @@ All acceptance criteria below are **planned/unverified**. Fixture profiling esta
 
 Keep production responsibilities easy to trace: delivery orchestration → typed event transformation → CPU embedding → transactional persistence; API request → validated ID → database ranking → response. Avoid generic service frameworks. No formatter, linter, type checker, or CI policy is configured in the starter; ignore patterns alone do not establish one. Planned verification command is `uv run pytest` (focused capability suites first, full suite at F3). Do not silently add unrelated quality tooling; admit only dependencies/configuration necessary for the feature's implementation and tests.
 
-The user has approved the plan and authorized one standalone documentation-only planning commit; implementation awaits a separate instruction. This planning deliverable includes no execution handoff, preflight, tests, application files, or `DESIGN.md`. On a later implementation instruction, the router creates an ignored `.sdd/` handoff, adds its ignore rule as needed, and runs preflight using the repository environment before executing F1. Keep command output, local blockers, exact allowed paths, and temporary state there rather than expanding these docs.
+The user approved M1 and authorized F1 implementation. Its ignored `.sdd/` handoff is removed after the feature commit; detailed command output and temporary state stay out of canonical docs.
 
 Promote durable regressions to capability-oriented tests, keep the authoritative feed unchanged, and retain only independent small fixtures needed for cases the feed lacks. Purge scratch scenarios/reports at feature completion; generated artifacts and model caches stay ignored. Include planning changes in the appropriate completed feature boundary, or one standalone planning commit only after approval. Each feature has one detailed commit with truthful verification and residual risks. Preserve the full completed M1 plan through the final feature commit; keep only a concise completed summary in the roadmap when later reusing this milestone file.
 
-There is no existing application path to migrate or remove. Review SQL atomicity, queue compatibility, timestamp assumptions, and error handling during F1/F2 verification; no extra audit phase is currently needed. Reopen human review only for a material architecture/authority conflict, runtime/model incompatibility requiring a changed decision, scope expansion, or a necessary manual check that cannot be established automatically. Plan review is complete, including naive-time and struck-off semantics; implementation awaits a separate user instruction.
+There is no existing application path to migrate or remove. F1 review verified SQL atomicity, queue compatibility, timestamp assumptions, and failure handling against its feature contract. Reopen human review only for a material architecture/authority conflict, runtime/model incompatibility requiring a changed decision, scope expansion, or a necessary manual check that cannot be established automatically. Plan review is complete, including naive-time and struck-off semantics. F2 is the next feature in the approved M1.

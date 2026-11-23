@@ -1,6 +1,6 @@
 # Company recommendation system roadmap
 
-Status: **plan approved by the user**; implementation awaits a separate instruction. Assessment version: **2026.11**. Requirements and inspected evidence: [planning sources](planning-sources.md). Executable contracts: [current milestone](milestone.md).
+Status: **M1 in progress; F1 complete; F2 ready**. Assessment version: **2026.11**. Requirements and inspected evidence: [planning sources](planning-sources.md). Executable contracts: [current milestone](milestone.md).
 
 ## Purpose and ownership
 
@@ -43,4 +43,4 @@ Core target: **5 hours including planning**, with a **hard six-hour development 
 - Keep the supplied producer, feed, Compose infrastructure, and assessment identity. Add only necessary application/dependency/test/run support after approval. No portal UI, extra services, Redis, Kafka, Kubernetes, paid APIs, cloud deployment, push, publication, or submission action.
 - Defer `DESIGN.md` until F3 can describe implemented choices and measured evidence. Keep these plans concise and update their status as work is verified.
 
-The user has approved this milestone and its explicit feed assumptions. F1 is the first feature prepared for implementation; the next human action is a separate instruction to begin F1.
+The user approved this milestone and its explicit feed assumptions. F1 is complete; F2 is the next planned feature. F1's evidence and environment limits are recorded in the [milestone](milestone.md).

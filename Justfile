@@ -17,3 +17,15 @@ down:
 # Replay the registry feed onto the company-events queue.
 publish:
     uv run python -m producer.publish
+
+# Create the consumer's PostgreSQL schema and pgvector extension.
+db-init:
+    uv run python -m company_rec.init_schema
+
+# Consume company events and persist the latest snapshot for each company.
+consume:
+    uv run python -m company_rec.consumer
+
+# Run F1's focused regression and integration coverage.
+test:
+    uv run pytest
