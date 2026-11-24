@@ -1,46 +1,17 @@
 # Company recommendation system roadmap
 
-Status: **M1 in progress; F1 and F2 complete; F3 ready**. Assessment version: **2026.11**. Requirements and inspected evidence: [planning sources](planning-sources.md). Executable contracts: [current milestone](milestone.md).
+Status: **M1 complete** for assessment version **2026.11**. M1 was the only approved milestone; no follow-on milestone is approved. The full contract and feature evidence remain in the [completed milestone](milestone.md), with source authority and feed observations in [planning sources](planning-sources.md).
 
-## Purpose and ownership
+## Completed milestone: reliable ingestion and recommendation submission
 
-Power the OneCredit portal's similar-company cards using the latest valid company information from its registry feed. The assessment requires a RabbitMQ consumer, CPU embeddings stored in PostgreSQL/pgvector, recommendations searched in PostgreSQL, reproducible run instructions, and a final `DESIGN.md`. Schema, model, API, failure policy, and tests are candidate decisions.
+The implementation preserves the supplied producer, feed, and durable `company-events` queue. The Python consumer validates event snapshots, generates cached CPU FastEmbed vectors, writes current company state or quarantine records to PostgreSQL/pgvector, and acknowledges only after the transaction commits. FastAPI serves up to four recommendations using exact cosine distance over stored vectors. See `DESIGN.md` for structure, decisions, run instructions, and limitations.
 
-Proposed flow:
+### Verified outcome
 
-```text
-OneCredit registry producer → company-events → async Python consumer
-                                             → CPU FastEmbed → PostgreSQL/pgvector
-OneCredit portal → FastAPI → exact cosine-distance query ──────┘
-```
+- The unchanged feed's **2,518 deliveries** produced **2,000 company rows** and **40 quarantine identities** (45 invalid or unsupported deliveries). An independent oracle matched every winning source version and metadata field, embedding input/model, and raw quarantine body. All vectors are finite, nonzero, and 384-dimensional.
+- A second full replay left a digest of all company columns/vectors and quarantine records unchanged. The live RabbitMQ recovery harness verified company transaction retry, quarantine transaction retry, redelivery after process exit between commit and ACK, and recovery after database-unavailable consumer startup. An in-flight PostgreSQL container outage was not exercised.
+- Five live API source IDs each returned four recommendations with source exclusion and database-consistent metadata/order. Invalid input returned `422`, an unknown company `404`, and a controlled unavailable-store instance `503`. Local warmed loopback latency over 100 sequential requests was p50 **2.996 ms**, p95 **3.707 ms**. Full-feed publish-and-drain was **37.656 seconds** under the documented warm-consumer/model conditions.
+- Final automated suite: **66 passed, 0 skipped**. README and `DESIGN.md` contain setup, verification, measured evidence, trade-offs, and remaining risks.
+- Optional manual review covered two judged source companies and eight recommendations: strict Precision@4 **7/8 = 0.875**. The fallback company was left unscored for insufficient activity metadata. This small sample is not representative; exact-description matches and user-judged cross-language semantic matches are distinguished in `DESIGN.md`.
 
-OneCredit owns the producer, feed, and durable queue with no extra arguments. Our consumer owns validation, embeddings, conditional writes, quarantine, and acknowledgements. PostgreSQL owns current company state and version ordering. FastAPI owns the portal response and error contract; it reads stored vectors and does not run embedding inference.
-
-Keep one Python application with two process entry points (consumer and API), shared typed validation/persistence code, explicit SQL, and the supplied Compose services. Proposed libraries: existing `aio-pika`, Pydantic, FastEmbed, `asyncpg` with the pgvector Python adapter, FastAPI/Uvicorn, and Pytest with async/API test support. Preserve Python 3.14; dependency resolution and real CPU inference are early feasibility gates.
-
-## Delivery sequence and time limit
-
-There is one active milestone, **M1 — reliable ingestion and recommendation submission**. There are no additional planned milestones or completed features.
-
-| Order | Deliverable | Estimated allocation, including verification/docs |
-| --- | --- | --- |
-| Planning | Inspect starter/feed and review these contracts | 40 minutes |
-| F1 | Database and reliable ingestion | 135 minutes |
-| F2 | Recommendation API | 60 minutes |
-| F3 | Full replay, recovery evidence, README and final DESIGN | 65 minutes |
-| Shared reserve | Unexpected problems; optional quality evaluation only after core completion | 60 minutes maximum |
-
-Core target: **5 hours including planning**, with a **hard six-hour development stop**. These are estimates, not elapsed-time claims. Count all assessment planning, coding, tests, research needed for delivery, and documentation against actual time spent; separately track personal conceptual learning. The README excludes initial infrastructure setup from assessment time, but this plan conservatively budgets development work. Do not reset the clock when implementation starts. At each feature boundary compare actual remaining time; use reserve for core gaps before optional work. Stop at the limit and document unfinished work honestly.
-
-**F3-OPT — Recommendation quality evaluation (time permitting)** stays within F3 and begins only after F1, F2, and required F3 verification/documentation are complete. Use at most the remaining assessment time, capped at one hour, without extending the six-hour overall limit. Sample up to 10 companies covering English descriptions, Malay descriptions, and fallback embeddings; manually score their top-four recommendations (2 = strongly similar business activity, 1 = related, 0 = unrelated). Report strict Precision@4 using only score-2 recommendations as relevant, plus qualitative error examples. Record methodology, observations, and limitations in `DESIGN.md`, identifying this as a small exploratory evaluation that is not statistically representative. Do not switch embedding models or implement new features. If the reserve is needed for required work, skip F3-OPT and document that decision in `DESIGN.md`; it is not a condition of core acceptance. See the [F3-OPT contract](milestone.md#f3-opt--recommendation-quality-evaluation-time-permitting) for metric details.
-
-## Decisions and boundaries
-
-- Use FastEmbed `BAAI/bge-small-en-v1.5`, 384 dimensions, on CPU. Preserve incomplete-description companies through documented fallback text. The feed mixes English and Malay; the English model is a simplicity choice with unmeasured multilingual quality.
-- Use exact pgvector cosine distance for 2,000 companies, with deterministic ties and no ANN index. Revisit indexing only after measured performance justifies its recall/complexity trade-off.
-- Start with one consumer and prefetch 1. PostgreSQL conditional upserts establish idempotent current state despite at-least-once delivery; this does not promise exactly-once transport.
-- Use `companies` and `failed_events`; quarantine invalid/unsupported input before ACK. Do not add a RabbitMQ DLQ or change queue arguments.
-- Keep the supplied producer, feed, Compose infrastructure, and assessment identity. Add only necessary application/dependency/test/run support after approval. No portal UI, extra services, Redis, Kafka, Kubernetes, paid APIs, cloud deployment, push, publication, or submission action.
-- Defer `DESIGN.md` until F3 can describe implemented choices and measured evidence. Keep these plans concise and update their status as work is verified.
-
-The user approved this milestone and its explicit feed assumptions. F1 and F2 are complete; F3 is the remaining planned feature. Verified evidence and current limits are recorded in the [milestone](milestone.md).
+Assessment time was reported as **120 minutes** before F3 closeout. The final approximate cumulative time and remaining budget are recorded in `DESIGN.md`; the six-hour assessment limit was not exceeded. Stop at M1 for developer review. Do not infer approval for another milestone, publication, or submission.

@@ -123,10 +123,9 @@ You need Docker, [uv](https://docs.astral.sh/uv/) (it installs Python 3.14 for y
 [just](https://github.com/casey/just). Setup takes about 5 minutes and doesn't count towards your time.
 
 ```bash
-just setup      # install the producer's dependencies
+just setup      # install the locked application and test dependencies
 just up         # start Postgres (with pgvector) and RabbitMQ
-just publish    # publish the registry feed to the queue
-just down       # stop everything and delete the data
+just db-init    # create the schema and pgvector extension
 ```
 
 Postgres is at `postgresql://postgres:postgres@localhost:5432/companies`, and the RabbitMQ management UI is at
@@ -134,20 +133,167 @@ http://localhost:15672 (user `guest`, password `guest`). If those ports are take
 `POSTGRES_PORT`, `RABBITMQ_PORT` or `RABBITMQ_UI_PORT` in your shell before `just up`; `just publish` uses the same
 `RABBITMQ_PORT`.
 
-`just publish` sends the whole feed every time you run it. To start again from an empty queue and database, run
-`just down` and then `just up`.
+`just publish` sends the whole feed every time you run it. In this implementation, repeated delivery is safe and leaves
+the latest company snapshots unchanged. `just down` runs `docker compose down -v` and deletes the local database and
+broker state. Do not use it as a routine restart or replay step; inspect and back up anything you need before using it.
 
 ## What's already here
 
 ```
 .
-├── data/feed.jsonl        # the registry feed: 2,518 messages about 2,000 synthetic Malaysian companies, duplicates included
-├── producer/publish.py    # replays the feed onto the queue
+├── company_rec/           # consumer, event validation, embeddings, persistence, and FastAPI service
+├── data/feed.jsonl        # 2,518 events about 2,000 synthetic Malaysian companies
+├── producer/publish.py    # unchanged OneCredit feed publisher
+├── tests/                 # unit, PostgreSQL, API, feed-oracle, and live recovery checks
 ├── docker-compose.yml     # Postgres with pgvector, and RabbitMQ
-└── Justfile               # setup, up, publish, down
+└── Justfile               # setup, up, db-init, consume, publish, api, test, down
 ```
 
-Add whatever else you need (`uv add` for libraries).
+## Run this implementation
+
+Prerequisites are Docker, `uv` with Python 3.14, and `just`. The first model load needs network access to download the
+FastEmbed model unless its files are already cached. Start the services and initialize the schema:
+
+```bash
+just setup
+just up
+just db-init
+```
+
+Run each long-lived process in its own terminal. Start the consumer before publishing the feed:
+
+```bash
+# Terminal 1: validate PostgreSQL and consume company-events.
+just consume
+
+# Terminal 2: publish all 2,518 unchanged feed lines.
+just publish
+
+# Terminal 3: serve the recommendation endpoint on 127.0.0.1:8000.
+just api
+```
+
+The consumer uses manual acknowledgements and PostgreSQL conditional upserts. It acknowledges an invalid event only
+after storing its quarantine record. A database, broker, or model failure leaves the delivery unacknowledged; restart
+the consumer after the underlying service is available. Replaying the feed is safe and does not replace a newer
+snapshot with an older one.
+
+### Request and response
+
+```bash
+curl 'http://127.0.0.1:8000/companies/SYN-001550/similar'
+```
+
+An observed response after full-feed ingestion:
+
+```json
+{
+  "registration_number": "SYN-001550",
+  "recommendations": [
+    {
+      "registration_number": "SYN-000539",
+      "name": "Seri Sejahtera Food Sdn. Bhd.",
+      "industry": "Food & Beverage",
+      "state": "Johor",
+      "similarity": 1.0
+    },
+    {
+      "registration_number": "SYN-000263",
+      "name": "Gemilang Delima Food Sdn. Bhd.",
+      "industry": "Food & Beverage",
+      "state": "Johor",
+      "similarity": 0.8336164951324463
+    },
+    {
+      "registration_number": "SYN-001650",
+      "name": "Everbright Pacific Food Sdn. Bhd.",
+      "industry": "Food & Beverage",
+      "state": "Kuala Lumpur",
+      "similarity": 0.8336164951324463
+    },
+    {
+      "registration_number": "SYN-000700",
+      "name": "Teguh Mega Logistik Trading",
+      "industry": "Logistics",
+      "state": "Selangor",
+      "similarity": 0.830081840743805
+    }
+  ]
+}
+```
+
+`similarity` is `1 - cosine distance`, not a probability. The optional `limit` query parameter must be from 1 through 4.
+Errors use `{ "error": { "code": "...", "message": "..." } }`: invalid input returns `422`, an unknown company
+returns `404`, and an unavailable database returns `503`.
+
+### Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/companies` | Application database used by schema initialization, consumer, and API. |
+| `COMPANY_TEST_DATABASE_URL` | unset | Separate database for PostgreSQL/pgvector integration tests. |
+| `RABBITMQ_URL` | `amqp://guest:guest@localhost:${RABBITMQ_PORT}/` | Consumer and publisher connection URL. |
+| `RABBITMQ_PORT` | `5672` | Local AMQP port used by Compose and the publisher fallback URL. |
+| `POSTGRES_PORT` | `5432` | Local PostgreSQL port published by Compose. |
+| `RABBITMQ_UI_PORT` | `15672` | Local RabbitMQ management UI/API port. |
+| `FASTEMBED_CACHE_PATH` | FastEmbed default cache | Optional model cache directory used by the consumer and real-model test. |
+
+Set port overrides in the shell before `just up`; use matching `DATABASE_URL` and `RABBITMQ_URL` values for app
+processes if you changed the ports. For example, create a separate test database once and use it for the full suite:
+
+```bash
+docker compose exec -T postgres psql -U postgres -d postgres -c 'CREATE DATABASE companies_test;'
+COMPANY_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/companies_test just test
+```
+
+The integration fixture creates a temporary schema inside `companies_test` and drops that schema after each test. It
+does not use or reset the application database. If the test database already exists, skip the `CREATE DATABASE`
+command. Without `COMPANY_TEST_DATABASE_URL`, PostgreSQL integration tests are skipped.
+
+FastEmbed downloads `BAAI/bge-small-en-v1.5` on the first load if it is not cached. To use a prepared cache, set
+`FASTEMBED_CACHE_PATH` to that cache directory before starting the consumer. The accepted artifact is
+`Qdrant/bge-small-en-v1.5-onnx-Q` revision
+`aa8f8b060edb00e03bfdd08813a2949946c8ba55`; embeddings have 384 dimensions and run on CPU.
+
+### Verification commands
+
+Run the full suite and inspect a completed live-feed replay with the independent oracle:
+
+```bash
+COMPANY_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/companies_test just test
+uv run python -m tests.verify_feed_ingestion --dsn postgresql://postgres:postgres@localhost:5432/companies
+```
+
+The live recovery harness verifies company rollback/redelivery, quarantine-write recovery, process exit after commit
+but before ACK, and recovery after an unavailable database at consumer startup. It requires the normal
+2,000-company/40-quarantine dataset, an empty `company-events` queue, and no active consumer. It uses three
+checked-unused synthetic company IDs and one unique malformed-message identity, deleting only those test records. It
+temporarily installs and removes database triggers, functions, and sequences. Run it only against the local
+assessment services:
+
+```bash
+uv run python -m tests.live_broker_recovery \
+  --dsn postgresql://postgres:postgres@localhost:5432/companies \
+  --rabbitmq-url amqp://guest:guest@localhost:5672/ \
+  --management-url http://localhost:15672
+```
+
+The harness uses `FASTEMBED_CACHE_PATH` when set. Otherwise, FastEmbed's default cache must already contain the model;
+you can provide a prepared local cache with `--cache-dir /path/to/model/cache`.
+
+### Troubleshooting and reset warning
+
+- Check `docker compose ps` for healthy PostgreSQL and RabbitMQ services. If a local port is occupied, choose a port
+  override and update the matching application URL.
+- If the app reports a missing schema, run `just db-init`; this is repeatable and does not clear existing rows.
+- If publishing appears stuck, confirm `just consume` is running and inspect ready/unacknowledged counts in the
+  RabbitMQ management UI at `http://localhost:15672`.
+- If consumer startup fails while loading FastEmbed, confirm the model cache path is writable and contains the
+  accepted model artifact, or allow the first run to download it.
+- If `uv` reports that its cache is not writable, point its cache at a writable directory, for example
+  `UV_CACHE_DIR=/tmp/oc-company-rec-system-uv-cache just test`.
+- `just down` deletes PostgreSQL and RabbitMQ state because it runs `docker compose down -v`. Do not run it to resolve
+  an ordinary startup, schema, or replay problem. Inspect the services and data first.
 
 ## How to submit
 
