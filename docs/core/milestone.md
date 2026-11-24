@@ -1,6 +1,6 @@
 # M1 — Reliable ingestion and recommendation submission
 
-Status: **M1 in progress; F1 complete; F2 ready**. F1's feature-level implementation and verification are complete; full producer-to-API acceptance remains in F3. Scope and time allocations: [roadmap](roadmap.md). Assessment authority, feed observations, and external references: [planning sources](planning-sources.md).
+Status: **M1 in progress; F1 and F2 complete; F3 ready**. Feature-level ingestion and recommendation behavior are implemented and verified; full-feed replay, recovery, and submission evidence remain in F3. Scope and time allocations: [roadmap](roadmap.md). Assessment authority, feed observations, and external references: [planning sources](planning-sources.md).
 
 ## Shared contracts
 
@@ -54,7 +54,7 @@ Use a consistent error envelope `{ "error": { "code": "...", "message": "..." } 
 
 ## Feature contracts and progress
 
-F1's acceptance evidence is recorded below. F2 and F3 acceptance remain **planned/unverified**. Fixture parsing and feature tests do not establish full broker replay, API behavior, replay performance, or recommendation quality.
+F1 and F2 acceptance evidence is recorded below. F3 acceptance remains **planned/unverified**. Feature tests do not establish full broker replay, replay performance, or subjective recommendation quality.
 
 ### F1 — Database and reliable ingestion
 
@@ -64,16 +64,16 @@ F1's acceptance evidence is recorded below. F2 and F3 acceptance remain **planne
 - **F1-01:** actual PostgreSQL/pgvector tests prove one row per normalized ID, atomic metadata/vector/version updates, duplicate/stale no-ops, equivalent timestamp instants, and deterministic equal-time winners in both arrival orders. Include competing transactions so an application-side read cannot mask a missing SQL guard.
 - **F1-02:** validation covers the real nested feed, all four timestamp forms, padded/lowercase IDs, null/missing/blank descriptions and metadata, numeric IDs, malformed JSON/non-object bodies, unsupported events, and ignored extra fields. All fallback levels preserve company eligibility; real-model smoke proves finite nonzero 384-dimensional output. Lightweight deterministic vectors may isolate unit/SQL tests, but cannot replace this smoke or final replay.
 - **F1-03:** transaction/broker failure scenarios prove rollback, no ACK before commit, durable quarantine before ACK, no ACK if quarantine fails, and safe redelivery after commit-before-ACK. Demonstrate a failed transaction can be followed by successful processing without corrupting the connection/row.
-- **Exit/evidence:** satisfied by `uv run pytest -q` (49 passed), including actual PostgreSQL/pgvector tests, a full read-only parse of all 2,518 feed lines, and a real-model CPU smoke test. PostgreSQL 16.15 with pgvector 0.6.0 was used because Docker was unavailable in WSL; the supplied Compose pgvector 0.8.7 image remains untested. RabbitMQ delivery/recovery scenarios use a fake AMQP channel; broker-level recovery belongs to F3. Python 3.14.5 resolved FastEmbed 0.9.1, asyncpg 0.32.0, pgvector 0.5.1, Pydantic 2.14.4, pytest 9.2.0, and pytest-asyncio 1.5.0. The real model artifact resolved to `Qdrant/bge-small-en-v1.5-onnx-Q@aa8f8b060edb00e03bfdd08813a2949946c8ba55`; output was finite, nonzero, and 384-dimensional. The full 2,518-message broker replay and runtime recovery remain F3 acceptance, not F1 claims.
+- **Exit/evidence:** satisfied. The full F1/F2 regression run passed **65 tests with 0 skips** against the isolated `companies_test` database on PostgreSQL 16.16/pgvector 0.8.7; it includes actual PostgreSQL tests, a full read-only parse of all 2,518 feed lines, and real BGE-small CPU inference. A live RabbitMQ 3.13.7 smoke inserted one unique company, acknowledged the message, then confirmed identical and older messages left the stored snapshot unchanged. The embedding artifact was `Qdrant/bge-small-en-v1.5-onnx-Q@aa8f8b060edb00e03bfdd08813a2949946c8ba55`; output was finite, nonzero, and 384-dimensional. Full broker replay and outage/restart recovery remain F3 acceptance.
 
 ### F2 — Recommendation API
 
-- **Type/status/route:** `build`; planned, depends on F1; `builder-executor -> tdd-loop`.
+- **Type/status/route:** `build`; complete; `builder-executor -> tdd-loop`.
 - **Outcome/scope:** FastAPI entry point, pool lifecycle, exact pgvector ranking and response/error contracts above, and API tests. Exclude portal UI, auth, alternate ranking heuristics, ANN, and quality claims.
-- **Entry gate:** F1 schema/embedding contract verified; supported portal capability and API behavior approved in M1.
-- **F2-01:** independently calculated cosine distances over controlled nonzero 384-dimensional vectors agree with actual PostgreSQL/API order and scores within floating-point tolerance. Include equal-distance ID ties, ascending distance, default/explicit limits, no self-recommendations, and incomplete metadata.
-- **F2-02:** API tests exercise normalization, `200` with fewer/zero candidates, `404`, validation `422`, database failure/timeout `503`, and sanitized `500`. Confirm source and candidate reads remain consistent during updates.
-- **Exit/evidence:** retain ranking and API regressions; run focused tests and F1 regressions. One completed F2 commit includes the implementation, tests, necessary run instructions, and milestone evidence.
+- **Entry gate:** satisfied. F1's schema, model, ingestion, and live broker smoke are verified; the similar-company portal capability and response/error contract were approved in M1.
+- **F2-01:** verified by actual pgvector tests using controlled 384-dimensional vectors and independently calculated cosine scores, including deterministic ties, ordering, limits, self-exclusion, and incomplete metadata.
+- **F2-02:** verified through API tests for normalization, `200` with fewer/zero candidates, `404`, validation `422`, database connection/query-timeout `503`, sanitized `500`, and a concurrent source change under repeatable-read isolation.
+- **Exit/evidence:** satisfied by 16 F2 tests within the full 65-test run (0 skips) against the isolated PostgreSQL 16.16/pgvector 0.8.7 database. The FastAPI app has a lifespan-managed pool, bounded acquire/query timeouts, and the `just api` local launch command. HTTP behavior was exercised through the ASGI client; a separate Uvicorn port smoke was not required. The application database may still have fewer than 2,000 companies until F3 replay.
 
 ### F3 — End-to-end verification and submission preparation
 
@@ -97,8 +97,8 @@ F1's acceptance evidence is recorded below. F2 and F3 acceptance remain **planne
 
 Keep production responsibilities easy to trace: delivery orchestration → typed event transformation → CPU embedding → transactional persistence; API request → validated ID → database ranking → response. Avoid generic service frameworks. No formatter, linter, type checker, or CI policy is configured in the starter; ignore patterns alone do not establish one. Planned verification command is `uv run pytest` (focused capability suites first, full suite at F3). Do not silently add unrelated quality tooling; admit only dependencies/configuration necessary for the feature's implementation and tests.
 
-The user approved M1 and authorized F1 implementation. Its ignored `.sdd/` handoff is removed after the feature commit; detailed command output and temporary state stay out of canonical docs.
+The user approved M1 and authorized F1 and F2. The ignored `.sdd/` handoff is removed after the feature commit; detailed command output and temporary state stay out of canonical docs.
 
 Promote durable regressions to capability-oriented tests, keep the authoritative feed unchanged, and retain only independent small fixtures needed for cases the feed lacks. Purge scratch scenarios/reports at feature completion; generated artifacts and model caches stay ignored. Include planning changes in the appropriate completed feature boundary, or one standalone planning commit only after approval. Each feature has one detailed commit with truthful verification and residual risks. Preserve the full completed M1 plan through the final feature commit; keep only a concise completed summary in the roadmap when later reusing this milestone file.
 
-There is no existing application path to migrate or remove. F1 review verified SQL atomicity, queue compatibility, timestamp assumptions, and failure handling against its feature contract. Reopen human review only for a material architecture/authority conflict, runtime/model incompatibility requiring a changed decision, scope expansion, or a necessary manual check that cannot be established automatically. Plan review is complete, including naive-time and struck-off semantics. F2 is the next feature in the approved M1.
+There is no existing application path to migrate or remove. F1 review verified SQL atomicity, queue compatibility, timestamp assumptions, and failure handling against its feature contract. F2 adds the single supported card-ranking endpoint; no parallel recommendation path or extra API surface remains. Reopen human review only for a material architecture/authority conflict, runtime/model incompatibility requiring a changed decision, scope expansion, or a necessary manual check that cannot be established automatically. Plan review is complete, including naive-time and struck-off semantics. F3 is the remaining feature in the approved M1.

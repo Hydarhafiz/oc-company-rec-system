@@ -24,6 +24,16 @@ class EventValidationError(ValueError):
         self.detail = detail
 
 
+def normalize_registration_number(value: object) -> str:
+    """Apply the shared company identifier normalization and format rule."""
+    if not isinstance(value, str):
+        raise EventValidationError("invalid_registration_number", "registrationNumber must be a string")
+    normalized = value.strip().upper()
+    if not REGISTRATION_PATTERN.fullmatch(normalized):
+        raise EventValidationError("invalid_registration_number", "registrationNumber has an unsupported format")
+    return normalized
+
+
 class CompanyData(BaseModel):
     """Typed subset of the producer's nested data object."""
 
@@ -103,12 +113,7 @@ def parse_event(raw_body: bytes, message_id: str | None) -> CompanyEvent:
     if event_type != "company-upserted":
         raise EventValidationError("unsupported_event_type", "event type is not supported")
 
-    raw_registration = payload.get("registrationNumber")
-    if not isinstance(raw_registration, str):
-        raise EventValidationError("invalid_registration_number", "registrationNumber must be a string")
-    registration_number = raw_registration.strip().upper()
-    if not REGISTRATION_PATTERN.fullmatch(registration_number):
-        raise EventValidationError("invalid_registration_number", "registrationNumber has an unsupported format")
+    registration_number = normalize_registration_number(payload.get("registrationNumber"))
 
     raw_data = payload.get("data")
     if not isinstance(raw_data, dict):

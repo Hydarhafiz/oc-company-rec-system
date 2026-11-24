@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import asyncpg
 from pgvector.asyncpg import register_vector
 
-from company_rec.embeddings import GeneratedEmbedding
-from company_rec.events import CompanyEvent
+if TYPE_CHECKING:
+    from company_rec.embeddings import GeneratedEmbedding
+    from company_rec.events import CompanyEvent
 
 UPSERT_COMPANY_SQL = """
 INSERT INTO companies (
@@ -49,6 +52,39 @@ INSERT INTO failed_events (message_id, body_sha256, raw_body, reason_code, detai
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT DO NOTHING
 """
+
+RECOMMENDATION_QUERY_TIMEOUT_MS = 2_000
+POOL_ACQUIRE_TIMEOUT_SECONDS = 2.0
+SOURCE_EXISTS_SQL = "SELECT 1 FROM companies WHERE registration_number = $1"
+SIMILAR_COMPANIES_SQL = """
+SELECT
+    candidate.registration_number,
+    COALESCE(candidate.company_name, candidate.registration_number) AS name,
+    candidate.industry,
+    candidate.state,
+    1 - (candidate.embedding <=> source.embedding) AS similarity
+FROM companies AS source
+JOIN companies AS candidate
+    ON candidate.registration_number <> source.registration_number
+WHERE source.registration_number = $1
+ORDER BY
+    candidate.embedding <=> source.embedding ASC,
+    candidate.registration_number COLLATE "C" ASC
+LIMIT $2
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class SimilarCompany:
+    registration_number: str
+    name: str
+    industry: str | None
+    state: str | None
+    similarity: float
+
+
+class DatabaseUnavailableError(RuntimeError):
+    """A database connection or bounded recommendation query failed."""
 
 
 class CompanyDatabase:
@@ -127,6 +163,43 @@ class CompanyDatabase:
                     reason_code,
                     detail,
                 )
+
+    async def get_similar_companies(
+        self,
+        registration_number: str,
+        limit: int,
+    ) -> list[SimilarCompany] | None:
+        """Return ranked candidates, or None if the source company is absent."""
+        try:
+            async with self._pool.acquire(timeout=POOL_ACQUIRE_TIMEOUT_SECONDS) as connection:
+                async with connection.transaction(isolation="repeatable_read", readonly=True):
+                    await connection.fetchval(
+                        "SELECT set_config('statement_timeout', $1, true)",
+                        f"{RECOMMENDATION_QUERY_TIMEOUT_MS}ms",
+                    )
+                    source_exists = await connection.fetchval(SOURCE_EXISTS_SQL, registration_number)
+                    if source_exists is None:
+                        return None
+
+                    rows = await connection.fetch(SIMILAR_COMPANIES_SQL, registration_number, limit)
+                    return [
+                        SimilarCompany(
+                            registration_number=row["registration_number"],
+                            name=row["name"],
+                            industry=row["industry"],
+                            state=row["state"],
+                            similarity=float(row["similarity"]),
+                        )
+                        for row in rows
+                    ]
+        except (
+            asyncpg.PostgresConnectionError,
+            asyncpg.InterfaceError,
+            asyncpg.QueryCanceledError,
+            OSError,
+            TimeoutError,
+        ) as error:
+            raise DatabaseUnavailableError("recommendation database unavailable") from error
 
     async def close(self) -> None:
         await self._pool.close()

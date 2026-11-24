@@ -26,6 +26,10 @@ db-init:
 consume:
     uv run python -m company_rec.consumer
 
+# Serve the similar-company recommendation API locally.
+api:
+    uv run uvicorn company_rec.api:app --host 127.0.0.1 --port 8000
+
 # Run F1's focused regression and integration coverage.
 test:
     uv run pytest

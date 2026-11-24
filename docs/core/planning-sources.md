@@ -10,9 +10,9 @@ Inspected on 2026-11-23. This compact record separates assessment authority, obs
 | [producer/publish.py](../../producer/publish.py) | Publishes each feed line unchanged, in order, to durable `company-events` with no extra arguments; persistent JSON messages; publisher confirms; AMQP `message_id` is SHA-256 of the line's UTF-8 bytes. Every publish repeats the entire feed. IDs are metadata, not event JSON. |
 | [data/feed.jsonl](../../data/feed.jsonl) | Actual synthetic input; full read-only profiling below. Preserve this authoritative fixture. |
 | [docker-compose.yml](../../docker-compose.yml), [Justfile](../../Justfile) | `pgvector/pgvector:0.8.7-pg16`, `rabbitmq:3.13.7-management`, health checks, localhost ports/overrides; setup/up/publish/down commands. `down` uses `docker compose down -v`. No named persistent volumes or application services are supplied. |
-| [pyproject.toml](../../pyproject.toml), [.python-version](../../.python-version), [uv.lock](../../uv.lock) | Python >=3.14,<3.15; uv non-package project; only `aio-pika` is a direct dependency (locked at 10.2.3). No application, tests, schema, formatter/linter/type/CI configuration is supplied. |
+| [pyproject.toml](../../pyproject.toml), [.python-version](../../.python-version), [uv.lock](../../uv.lock) | At the planning snapshot, Python >=3.14,<3.15 and uv non-package project; only `aio-pika` was a direct dependency (locked at 10.2.3). No application, tests, schema, formatter/linter/type/CI configuration was supplied. |
 
-The initial tracked tree contains all original starter files needed for planning. No existing canonical planning documents or repository `AGENTS.md` were found. No secret files or environment values were inspected. Runtime installation and service health have not been tested.
+The initial tracked tree contained all original starter files needed for planning. No existing canonical planning documents or repository `AGENTS.md` were found. No secret files or environment values were inspected. Runtime installation and service health had not been tested at planning time; current F1 and F2 evidence is recorded in the [milestone](milestone.md).
 
 ## Observed feed and proposed interpretation
 
